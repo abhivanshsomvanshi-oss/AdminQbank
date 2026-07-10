@@ -174,15 +174,20 @@ if ('serviceWorker' in navigator) {
 
   // ---------- Pricing plans (stored at config/pricing) ----------
   async function loadPlans() {
-    const snap = await db.collection('config').doc('pricing').get();
-    plans = (snap.exists && snap.data().plans) || [
-      { label: '1 Month', days: 30, price: 75 },
-      { label: '3 Months', days: 91, price: 180 },
-      { label: '6 Months', days: 182, price: 300 },
-      { label: '1 Year', days: 365, price: 500 },
-    ];
-    renderPlansEditor();
-    renderPlanSelect();
+    try {
+      const snap = await db.collection('config').doc('pricing').get();
+      plans = (snap.exists && snap.data().plans) || [
+        { label: '1 Month', days: 30, price: 75 },
+        { label: '3 Months', days: 91, price: 180 },
+        { label: '6 Months', days: 182, price: 300 },
+        { label: '1 Year', days: 365, price: 500 },
+      ];
+      renderPlansEditor();
+      renderPlanSelect();
+    } catch (e) {
+      document.getElementById('plans-status').textContent = '❌ Could not load plans: ' + e.message;
+      console.error('loadPlans failed:', e);
+    }
   }
   function renderPlansEditor() {
     const wrap = document.getElementById('plans-editor');
@@ -207,13 +212,21 @@ if ('serviceWorker' in navigator) {
     renderPlansEditor();
   }
   async function savePlans() {
-    await db.collection('config').doc('pricing').set({ plans });
-    document.getElementById('plans-status').textContent = '✅ Saved ' + new Date().toLocaleTimeString();
-    renderPlanSelect();
+    const statusEl = document.getElementById('plans-status');
+    statusEl.textContent = 'Saving…';
+    try {
+      await db.collection('config').doc('pricing').set({ plans });
+      statusEl.textContent = '✅ Saved ' + new Date().toLocaleTimeString();
+      renderPlanSelect();
+    } catch (e) {
+      statusEl.textContent = '❌ Save failed: ' + e.message;
+      console.error('savePlans failed:', e);
+      alert('Could not save plans:\n\n' + e.message + '\n\nMost likely cause: Firestore security rules aren\'t published yet, or ADMIN_EMAIL in this file doesn\'t exactly match your signed-in email.');
+    }
   }
   function renderPlanSelect() {
     const sel = document.getElementById('gen-plan');
-    sel.innerHTML = plans.map((p, i) => `<option value="${i}">${p.label} — ₹${p.price} (${p.days}d)</option>`).join('');
+    sel.innerHTML = plans.map((p, i) => `<option value="${i}" style="background:#12141f;color:#f1f5f9">${p.label} — ₹${p.price} (${p.days}d)</option>`).join('');
   }
 
   // ---------- Code generation ----------
@@ -228,6 +241,7 @@ if ('serviceWorker' in navigator) {
 
   let lastGenCode = '';
   async function doGenerate() {
+    if (!plans.length) { alert('No pricing plans loaded yet. Wait a moment and try again, or check the Pricing Plans section above for an error.'); return; }
     const planIdx = parseInt(document.getElementById('gen-plan').value);
     const customDays = parseInt(document.getElementById('gen-custom-days').value);
     const plan = plans[planIdx] || { label: 'Custom', price: 0 };
@@ -236,15 +250,21 @@ if ('serviceWorker' in navigator) {
     const code = randomCode();
     const expiresAt = Date.now() + days * 86400000;
 
-    await db.collection('licenseCodes').doc(code).set({
-      expiresAt,
-      revoked: false,
-      deviceId: null,
-      planLabel: plan.label,
-      price: plan.price,
-      buyerNote: note,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    try {
+      await db.collection('licenseCodes').doc(code).set({
+        expiresAt,
+        revoked: false,
+        deviceId: null,
+        planLabel: plan.label,
+        price: plan.price,
+        buyerNote: note,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      console.error('doGenerate failed:', e);
+      alert('Could not generate code:\n\n' + e.message + '\n\nMost likely cause: Firestore security rules aren\'t published yet, or ADMIN_EMAIL in this file doesn\'t exactly match your signed-in email (' + (auth.currentUser ? auth.currentUser.email : 'not signed in') + ').');
+      return;
+    }
 
     lastGenCode = code;
     document.getElementById('gen-code').textContent = code;
@@ -261,9 +281,15 @@ if ('serviceWorker' in navigator) {
 
   // ---------- Codes table ----------
   async function loadCodes() {
-    const snap = await db.collection('licenseCodes').orderBy('createdAt', 'desc').get();
-    allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderCodesTable();
+    try {
+      const snap = await db.collection('licenseCodes').orderBy('createdAt', 'desc').get();
+      allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderCodesTable();
+    } catch (e) {
+      console.error('loadCodes failed:', e);
+      document.getElementById('codes-tbody').innerHTML =
+        `<tr><td colspan="6" style="color:#f87171">Could not load codes: ${e.message}</td></tr>`;
+    }
   }
   function renderCodesTable() {
     const q = document.getElementById('search-box').value.toLowerCase();
@@ -291,12 +317,22 @@ if ('serviceWorker' in navigator) {
   }
   async function revoke(code) {
     if (!confirm(`Revoke code ${code}? The buyer will be locked out immediately.`)) return;
-    await db.collection('licenseCodes').doc(code).update({ revoked: true });
-    loadCodes();
+    try {
+      await db.collection('licenseCodes').doc(code).update({ revoked: true });
+      loadCodes();
+    } catch (e) {
+      alert('Could not revoke: ' + e.message);
+      console.error('revoke failed:', e);
+    }
   }
   async function unrevoke(code) {
-    await db.collection('licenseCodes').doc(code).update({ revoked: false });
-    loadCodes();
+    try {
+      await db.collection('licenseCodes').doc(code).update({ revoked: false });
+      loadCodes();
+    } catch (e) {
+      alert('Could not restore: ' + e.message);
+      console.error('unrevoke failed:', e);
+    }
   }
 </script>
 </body>
