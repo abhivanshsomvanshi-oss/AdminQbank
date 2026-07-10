@@ -22,6 +22,7 @@ if ('serviceWorker' in navigator) {
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   * { box-sizing: border-box; }
+  html { color-scheme: dark; }
   body {
     margin: 0; font-family: -apple-system, 'Inter', sans-serif;
     background: #0a0b10; color: #f1f5f9; min-height: 100vh; padding: 20px;
@@ -41,6 +42,16 @@ if ('serviceWorker' in navigator) {
   input, select {
     width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2f45;
     background: #12141f; color: #f1f5f9; font-size: 14px;
+    -webkit-appearance: none; appearance: none;
+  }
+  select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'><path d='M1 1l6 6 6-6' stroke='%2394a3b8' stroke-width='2' fill='none' fill-rule='evenodd'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+  select option {
+    background: #12141f; color: #f1f5f9;
   }
   button {
     padding: 11px 16px; border: none; border-radius: 10px; background: #6366f1;
@@ -213,6 +224,10 @@ if ('serviceWorker' in navigator) {
   }
   function renderPlanSelect() {
     const sel = document.getElementById('gen-plan');
+    if (!plans || !plans.length) {
+      sel.innerHTML = '<option value="">No plans yet — add & save one above</option>';
+      return;
+    }
     sel.innerHTML = plans.map((p, i) => `<option value="${i}">${p.label} — ₹${p.price} (${p.days}d)</option>`).join('');
   }
 
