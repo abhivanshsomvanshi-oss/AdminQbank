@@ -184,13 +184,20 @@ if ('serviceWorker' in navigator) {
 
   // ---------- Pricing plans (stored at config/pricing) ----------
   async function loadPlans() {
-    const snap = await db.collection('config').doc('pricing').get();
-    plans = (snap.exists && snap.data().plans) || [
-      { label: '1 Month', days: 30, price: 75 },
-      { label: '3 Months', days: 91, price: 180 },
-      { label: '6 Months', days: 182, price: 300 },
-      { label: '1 Year', days: 365, price: 500 },
-    ];
+    try {
+      const snap = await db.collection('config').doc('pricing').get();
+      plans = (snap.exists && snap.data().plans) || [
+        { label: '1 Month', days: 30, price: 75 },
+        { label: '3 Months', days: 91, price: 180 },
+        { label: '6 Months', days: 182, price: 300 },
+        { label: '1 Year', days: 365, price: 500 },
+      ];
+    } catch (e) {
+      console.error('loadPlans error:', e);
+      document.getElementById('plans-status').style.color = '#f87171';
+      document.getElementById('plans-status').textContent = '❌ Could not load plans: ' + e.message;
+      plans = [];
+    }
     renderPlansEditor();
     renderPlanSelect();
   }
@@ -218,9 +225,19 @@ if ('serviceWorker' in navigator) {
     renderPlansEditor();
   }
   async function savePlans() {
-    await db.collection('config').doc('pricing').set({ plans });
-    document.getElementById('plans-status').textContent = '✅ Saved ' + new Date().toLocaleTimeString();
-    renderPlanSelect();
+    const statusEl = document.getElementById('plans-status');
+    statusEl.style.color = '#94a3b8';
+    statusEl.textContent = 'Saving…';
+    try {
+      await db.collection('config').doc('pricing').set({ plans });
+      statusEl.style.color = '#22c55e';
+      statusEl.textContent = '✅ Saved ' + new Date().toLocaleTimeString();
+      renderPlanSelect();
+    } catch (e) {
+      statusEl.style.color = '#f87171';
+      statusEl.textContent = '❌ Save failed: ' + e.message;
+      console.error('savePlans error:', e);
+    }
   }
   let selectedPlanIdx = 0;
   function selectPlan(i) {
@@ -264,15 +281,21 @@ if ('serviceWorker' in navigator) {
     const code = randomCode();
     const expiresAt = Date.now() + days * 86400000;
 
-    await db.collection('licenseCodes').doc(code).set({
-      expiresAt,
-      revoked: false,
-      deviceId: null,
-      planLabel: plan.label,
-      price: plan.price,
-      buyerNote: note,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    try {
+      await db.collection('licenseCodes').doc(code).set({
+        expiresAt,
+        revoked: false,
+        deviceId: null,
+        planLabel: plan.label,
+        price: plan.price,
+        buyerNote: note,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      alert('❌ Could not generate code: ' + e.message);
+      console.error('doGenerate error:', e);
+      return;
+    }
 
     lastGenCode = code;
     document.getElementById('gen-code').textContent = code;
