@@ -202,12 +202,13 @@ if ('serviceWorker' in navigator) {
       const row = document.createElement('div');
       row.className = 'plan-row';
       row.innerHTML = `
-        <input value="${p.label}" placeholder="Label" onchange="plans[${i}].label=this.value">
-        <input type="number" value="${p.days}" placeholder="Days" style="max-width:80px" onchange="plans[${i}].days=parseInt(this.value)">
-        <input type="number" value="${p.price}" placeholder="₹" style="max-width:80px" onchange="plans[${i}].price=parseInt(this.value)">
+        <input value="${p.label}" placeholder="Label" onchange="plans[${i}].label=this.value; renderPlanSelect();">
+        <input type="number" value="${p.days}" placeholder="Days" style="max-width:80px" onchange="plans[${i}].days=parseInt(this.value)||0; renderPlanSelect();">
+        <input type="number" value="${p.price}" placeholder="₹" style="max-width:80px" onchange="plans[${i}].price=parseInt(this.value)||0; renderPlanSelect();">
         <button class="danger small" onclick="removePlanRow(${i})">✕</button>`;
       wrap.appendChild(row);
     });
+    renderPlanSelect();
   }
   function addPlanRow() {
     plans.push({ label: 'New Plan', days: 30, price: 0 });
@@ -224,12 +225,14 @@ if ('serviceWorker' in navigator) {
   }
   function renderPlanSelect() {
     const sel = document.getElementById('gen-plan');
+    if (!sel) return;
     if (!plans || !plans.length) {
-      sel.innerHTML = '<option value="">No plans yet — add & save one above</option>';
+      sel.innerHTML = '<option value="">No plans yet — add one above</option>';
       return;
     }
-    sel.innerHTML = plans.map((p, i) => `<option value="${i}">${p.label} — ₹${p.price} (${p.days}d)</option>`).join('');
+    sel.innerHTML = plans.map((p, i) => `<option value="${i}">${p.label || 'Unnamed'} — ₹${p.price || 0} (${p.days || 0}d)</option>`).join('');
   }
+
 
   // ---------- Code generation ----------
   function randomCode() {
