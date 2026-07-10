@@ -50,9 +50,14 @@ if ('serviceWorker' in navigator) {
     background-position: right 12px center;
     padding-right: 32px;
   }
-  select option {
-    background: #12141f; color: #f1f5f9;
+  .plan-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .plan-chip {
+    padding: 9px 14px; border-radius: 20px; border: 1px solid #2a2f45;
+    background: #12141f; color: #cbd5e1; font-size: 13px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; user-select: none;
   }
+  .plan-chip.selected { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
+  .plan-chip.empty { color: #64748b; cursor: default; }
   button {
     padding: 11px 16px; border: none; border-radius: 10px; background: #6366f1;
     color: #fff; font-weight: 600; font-size: 14px; cursor: pointer;
@@ -109,16 +114,10 @@ if ('serviceWorker' in navigator) {
 
     <div class="card">
       <h2>🎟️ Generate a Code</h2>
-      <div class="row">
-        <div>
-          <label>Plan</label>
-          <select id="gen-plan"></select>
-        </div>
-        <div>
-          <label>Custom days (optional)</label>
-          <input type="number" id="gen-custom-days" placeholder="overrides plan">
-        </div>
-      </div>
+      <label>Plan</label>
+      <div id="gen-plan-chips" class="plan-chip-row"></div>
+      <label>Custom days (optional)</label>
+      <input type="number" id="gen-custom-days" placeholder="overrides plan">
       <label>Buyer name / note</label>
       <input type="text" id="gen-note" placeholder="e.g. Rahul - Anatomy batch">
       <div style="margin-top:12px"><button onclick="doGenerate()">Generate Code</button></div>
@@ -223,14 +222,22 @@ if ('serviceWorker' in navigator) {
     document.getElementById('plans-status').textContent = '✅ Saved ' + new Date().toLocaleTimeString();
     renderPlanSelect();
   }
+  let selectedPlanIdx = 0;
+  function selectPlan(i) {
+    selectedPlanIdx = i;
+    renderPlanSelect();
+  }
   function renderPlanSelect() {
-    const sel = document.getElementById('gen-plan');
-    if (!sel) return;
+    const wrap = document.getElementById('gen-plan-chips');
+    if (!wrap) return;
     if (!plans || !plans.length) {
-      sel.innerHTML = '<option value="">No plans yet — add one above</option>';
+      wrap.innerHTML = '<div class="plan-chip empty">No plans yet — add one above</div>';
       return;
     }
-    sel.innerHTML = plans.map((p, i) => `<option value="${i}">${p.label || 'Unnamed'} — ₹${p.price || 0} (${p.days || 0}d)</option>`).join('');
+    if (selectedPlanIdx > plans.length - 1) selectedPlanIdx = 0;
+    wrap.innerHTML = plans.map((p, i) =>
+      `<div class="plan-chip${i === selectedPlanIdx ? ' selected' : ''}" onclick="selectPlan(${i})">${p.label || 'Unnamed'} — ₹${p.price || 0} (${p.days || 0}d)</div>`
+    ).join('');
   }
 
 
@@ -246,9 +253,12 @@ if ('serviceWorker' in navigator) {
 
   let lastGenCode = '';
   async function doGenerate() {
-    const planIdx = parseInt(document.getElementById('gen-plan').value);
+    if (!plans || !plans.length) {
+      alert('Add at least one plan above first.');
+      return;
+    }
     const customDays = parseInt(document.getElementById('gen-custom-days').value);
-    const plan = plans[planIdx] || { label: 'Custom', price: 0 };
+    const plan = plans[selectedPlanIdx] || { label: 'Custom', price: 0 };
     const days = !isNaN(customDays) && customDays > 0 ? customDays : plan.days;
     const note = document.getElementById('gen-note').value.trim();
     const code = randomCode();
