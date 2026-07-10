@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<meta name="theme-color" content="#0a0b10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => console.log('Admin SW registered:', reg.scope))
+      .catch(err => console.log('Admin SW error:', err));
+  });
+}
+</script>
+<title>QBank Hub — Admin Panel (PRIVATE)</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, 'Inter', sans-serif;
+    background: #0a0b10; color: #f1f5f9; min-height: 100vh; padding: 20px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .card {
+    background: #181b28; border-radius: 16px; padding: 22px 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.4); margin-bottom: 16px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: #cbd5e1; }
+  .warn {
+    background: rgba(245,158,11,0.12); border: 1px solid #f59e0b; color: #f59e0b;
+    font-size: 12.5px; border-radius: 8px; padding: 8px 10px; margin-bottom: 16px; text-align: center;
+  }
+  label { font-size: 12.5px; color: #94a3b8; display: block; margin: 10px 0 6px; }
+  input, select {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2f45;
+    background: #12141f; color: #f1f5f9; font-size: 14px;
+  }
+  button {
+    padding: 11px 16px; border: none; border-radius: 10px; background: #6366f1;
+    color: #fff; font-weight: 600; font-size: 14px; cursor: pointer;
+  }
+  button.secondary { background: #2a2f45; }
+  button.danger { background: #7f1d1d; color: #fca5a5; }
+  button.small { padding: 6px 10px; font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 120px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 10px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #23283b; }
+  th { color: #94a3b8; font-weight: 600; }
+  .pill { padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .pill.active { background: rgba(34,197,94,0.15); color: #22c55e; }
+  .pill.expired { background: rgba(148,163,184,0.15); color: #94a3b8; }
+  .pill.revoked { background: rgba(239,68,68,0.15); color: #f87171; }
+  .pill.unused { background: rgba(99,102,241,0.15); color: #a5b4fc; }
+  #login-card input { margin-bottom: 10px; }
+  #app-content { display: none; }
+  .plan-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .plan-row input { flex: 1; }
+  .code-result { text-align: center; padding: 14px; background: #12141f; border-radius: 10px; margin-top: 12px; display: none; }
+  .code-result.show { display: block; }
+  .code-result .code { font-size: 20px; font-weight: 700; letter-spacing: 1.5px; color: #22c55e; margin-bottom: 6px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card" id="login-card">
+    <h1>🔐 Admin Panel</h1>
+    <div class="warn">Private tool — sign in with your admin account only.</div>
+    <label>Email</label>
+    <input id="login-email" type="email" placeholder="you@example.com">
+    <label>Password</label>
+    <input id="login-password" type="password" placeholder="Password">
+    <button onclick="doLogin()">Sign In</button>
+    <div id="login-error" style="color:#f87171;font-size:13px;margin-top:10px;"></div>
+  </div>
+
+  <div id="app-content">
+    <div class="card">
+      <h1>🔐 Admin Panel</h1>
+      <div id="who" style="font-size:12.5px;color:#94a3b8;">Signed in</div>
+    </div>
+
+    <div class="card">
+      <h2>💰 Pricing Plans</h2>
+      <div id="plans-editor"></div>
+      <button class="secondary small" onclick="addPlanRow()">+ Add Plan</button>
+      <button class="small" onclick="savePlans()" style="margin-left:8px">💾 Save Plans</button>
+      <div id="plans-status" style="font-size:12px;color:#94a3b8;margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>🎟️ Generate a Code</h2>
+      <div class="row">
+        <div>
+          <label>Plan</label>
+          <select id="gen-plan"></select>
+        </div>
+        <div>
+          <label>Custom days (optional)</label>
+          <input type="number" id="gen-custom-days" placeholder="overrides plan">
+        </div>
+      </div>
+      <label>Buyer name / note</label>
+      <input type="text" id="gen-note" placeholder="e.g. Rahul - Anatomy batch">
+      <div style="margin-top:12px"><button onclick="doGenerate()">Generate Code</button></div>
+      <div class="code-result" id="gen-result">
+        <div class="code" id="gen-code"></div>
+        <div id="gen-meta" style="font-size:12.5px;color:#94a3b8;"></div>
+        <button class="secondary small" style="margin-top:10px" onclick="copyGenCode()">📋 Copy Code</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📋 All Codes Issued</h2>
+      <input type="text" id="search-box" placeholder="Search by buyer note or code..." oninput="renderCodesTable()" style="margin-bottom:10px">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Code</th><th>Buyer</th><th>Plan</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+          <tbody id="codes-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ====== FIREBASE CONFIG (same project as index.html) ======
+  const firebaseConfig = {
+    apiKey: "AIzaSyAsYCks6MMeWOQwRAr7c4vKLuCSUGyDdnU",
+    authDomain: "qbanks-hub.firebaseapp.com",
+    projectId: "qbanks-hub",
+    storageBucket: "qbanks-hub.firebasestorage.app",
+    messagingSenderId: "462367133758",
+    appId: "1:462367133758:web:11700997c094935c31016f"
+  };
+  const ADMIN_EMAIL = "abhivanshsomvanshi@gmail.com";
+  // =============================================================================
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  let allCodes = [];
+  let plans = [];
+
+  function doLogin() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    document.getElementById('login-error').textContent = '';
+    auth.signInWithEmailAndPassword(email, password).catch(e => {
+      document.getElementById('login-error').textContent = e.message;
+    });
+  }
+
+  auth.onAuthStateChanged(user => {
+    if (user && user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      document.getElementById('login-card').style.display = 'none';
+      document.getElementById('app-content').style.display = 'block';
+      document.getElementById('who').textContent = 'Signed in as ' + user.email;
+      loadPlans();
+      loadCodes();
+    } else if (user) {
+      document.getElementById('login-error').textContent = 'Not an admin account.';
+      auth.signOut();
+    }
+  });
+
+  // ---------- Pricing plans (stored at config/pricing) ----------
+  async function loadPlans() {
+    const snap = await db.collection('config').doc('pricing').get();
+    plans = (snap.exists && snap.data().plans) || [
+      { label: '1 Month', days: 30, price: 75 },
+      { label: '3 Months', days: 91, price: 180 },
+      { label: '6 Months', days: 182, price: 300 },
+      { label: '1 Year', days: 365, price: 500 },
+    ];
+    renderPlansEditor();
+    renderPlanSelect();
+  }
+  function renderPlansEditor() {
+    const wrap = document.getElementById('plans-editor');
+    wrap.innerHTML = '';
+    plans.forEach((p, i) => {
+      const row = document.createElement('div');
+      row.className = 'plan-row';
+      row.innerHTML = `
+        <input value="${p.label}" placeholder="Label" onchange="plans[${i}].label=this.value">
+        <input type="number" value="${p.days}" placeholder="Days" style="max-width:80px" onchange="plans[${i}].days=parseInt(this.value)">
+        <input type="number" value="${p.price}" placeholder="₹" style="max-width:80px" onchange="plans[${i}].price=parseInt(this.value)">
+        <button class="danger small" onclick="removePlanRow(${i})">✕</button>`;
+      wrap.appendChild(row);
+    });
+  }
+  function addPlanRow() {
+    plans.push({ label: 'New Plan', days: 30, price: 0 });
+    renderPlansEditor();
+  }
+  function removePlanRow(i) {
+    plans.splice(i, 1);
+    renderPlansEditor();
+  }
+  async function savePlans() {
+    await db.collection('config').doc('pricing').set({ plans });
+    document.getElementById('plans-status').textContent = '✅ Saved ' + new Date().toLocaleTimeString();
+    renderPlanSelect();
+  }
+  function renderPlanSelect() {
+    const sel = document.getElementById('gen-plan');
+    sel.innerHTML = plans.map((p, i) => `<option value="${i}">${p.label} — ₹${p.price} (${p.days}d)</option>`).join('');
+  }
+
+  // ---------- Code generation ----------
+  function randomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars (0/O, 1/I)
+    const bytes = new Uint8Array(10);
+    crypto.getRandomValues(bytes);
+    let s = '';
+    for (let i = 0; i < 10; i++) s += chars[bytes[i] % chars.length];
+    return s.slice(0,5) + '-' + s.slice(5);
+  }
+
+  let lastGenCode = '';
+  async function doGenerate() {
+    const planIdx = parseInt(document.getElementById('gen-plan').value);
+    const customDays = parseInt(document.getElementById('gen-custom-days').value);
+    const plan = plans[planIdx] || { label: 'Custom', price: 0 };
+    const days = !isNaN(customDays) && customDays > 0 ? customDays : plan.days;
+    const note = document.getElementById('gen-note').value.trim();
+    const code = randomCode();
+    const expiresAt = Date.now() + days * 86400000;
+
+    await db.collection('licenseCodes').doc(code).set({
+      expiresAt,
+      revoked: false,
+      deviceId: null,
+      planLabel: plan.label,
+      price: plan.price,
+      buyerNote: note,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+
+    lastGenCode = code;
+    document.getElementById('gen-code').textContent = code;
+    document.getElementById('gen-meta').textContent =
+      `${plan.label} · ₹${plan.price} · valid ${days} days · expires ${new Date(expiresAt).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}`;
+    document.getElementById('gen-result').classList.add('show');
+    document.getElementById('gen-note').value = '';
+    loadCodes();
+  }
+  function copyGenCode() {
+    if (!lastGenCode) return;
+    navigator.clipboard.writeText(lastGenCode).then(() => alert('Code copied!'));
+  }
+
+  // ---------- Codes table ----------
+  async function loadCodes() {
+    const snap = await db.collection('licenseCodes').orderBy('createdAt', 'desc').get();
+    allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderCodesTable();
+  }
+  function renderCodesTable() {
+    const q = document.getElementById('search-box').value.toLowerCase();
+    const tbody = document.getElementById('codes-tbody');
+    tbody.innerHTML = '';
+    allCodes
+      .filter(c => !q || c.id.toLowerCase().includes(q) || (c.buyerNote||'').toLowerCase().includes(q))
+      .forEach(c => {
+        const now = Date.now();
+        let status = 'unused', cls = 'unused';
+        if (c.revoked) { status = 'Revoked'; cls = 'revoked'; }
+        else if (now > c.expiresAt) { status = 'Expired'; cls = 'expired'; }
+        else if (c.deviceId) { status = 'Active'; cls = 'active'; }
+        else { status = 'Unused'; cls = 'unused'; }
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="font-family:monospace">${c.id}</td>
+          <td>${c.buyerNote || '—'}</td>
+          <td>${c.planLabel || '—'}${c.price?(' · ₹'+c.price):''}</td>
+          <td><span class="pill ${cls}">${status}</span></td>
+          <td>${new Date(c.expiresAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'})}</td>
+          <td>${c.revoked ? `<button class="secondary small" onclick="unrevoke('${c.id}')">Restore</button>` : `<button class="danger small" onclick="revoke('${c.id}')">Revoke</button>`}</td>`;
+        tbody.appendChild(tr);
+      });
+  }
+  async function revoke(code) {
+    if (!confirm(`Revoke code ${code}? The buyer will be locked out immediately.`)) return;
+    await db.collection('licenseCodes').doc(code).update({ revoked: true });
+    loadCodes();
+  }
+  async function unrevoke(code) {
+    await db.collection('licenseCodes').doc(code).update({ revoked: false });
+    loadCodes();
+  }
+</script>
+</body>
+</html>
