@@ -2,27 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="theme-color" content="#0a0b10">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest-admin.json">
+<title>QBank Hub — Admin Panel (PRIVATE)</title>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js')
+    navigator.serviceWorker.register('./sw-admin.js')
       .then(reg => console.log('Admin SW registered:', reg.scope))
       .catch(err => console.log('Admin SW error:', err));
   });
 }
 </script>
-<title>QBank Hub — Admin Panel (PRIVATE)</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   * { box-sizing: border-box; }
-  html { color-scheme: dark; }
   body {
     margin: 0; font-family: -apple-system, 'Inter', sans-serif;
     background: #0a0b10; color: #f1f5f9; min-height: 100vh; padding: 20px;
@@ -42,22 +41,7 @@ if ('serviceWorker' in navigator) {
   input, select {
     width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2f45;
     background: #12141f; color: #f1f5f9; font-size: 14px;
-    -webkit-appearance: none; appearance: none;
   }
-  select {
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'><path d='M1 1l6 6 6-6' stroke='%2394a3b8' stroke-width='2' fill='none' fill-rule='evenodd'/></svg>");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    padding-right: 32px;
-  }
-  .plan-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
-  .plan-chip {
-    padding: 9px 14px; border-radius: 20px; border: 1px solid #2a2f45;
-    background: #12141f; color: #cbd5e1; font-size: 13px; cursor: pointer;
-    -webkit-tap-highlight-color: transparent; user-select: none;
-  }
-  .plan-chip.selected { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
-  .plan-chip.empty { color: #64748b; cursor: default; }
   button {
     padding: 11px 16px; border: none; border-radius: 10px; background: #6366f1;
     color: #fff; font-weight: 600; font-size: 14px; cursor: pointer;
@@ -114,10 +98,16 @@ if ('serviceWorker' in navigator) {
 
     <div class="card">
       <h2>🎟️ Generate a Code</h2>
-      <label>Plan</label>
-      <div id="gen-plan-chips" class="plan-chip-row"></div>
-      <label>Custom days (optional)</label>
-      <input type="number" id="gen-custom-days" placeholder="overrides plan">
+      <div class="row">
+        <div>
+          <label>Plan</label>
+          <select id="gen-plan"></select>
+        </div>
+        <div>
+          <label>Custom days (optional)</label>
+          <input type="number" id="gen-custom-days" placeholder="overrides plan">
+        </div>
+      </div>
       <label>Buyer name / note</label>
       <input type="text" id="gen-note" placeholder="e.g. Rahul - Anatomy batch">
       <div style="margin-top:12px"><button onclick="doGenerate()">Generate Code</button></div>
@@ -142,7 +132,7 @@ if ('serviceWorker' in navigator) {
 </div>
 
 <script>
-  // ====== FIREBASE CONFIG (same project as index.html) ======
+  // ====== PASTE THE SAME FIREBASE CONFIG + ADMIN EMAIL AS IN index.html ======
   const firebaseConfig = {
     apiKey: "AIzaSyAsYCks6MMeWOQwRAr7c4vKLuCSUGyDdnU",
     authDomain: "qbanks-hub.firebaseapp.com",
@@ -184,20 +174,13 @@ if ('serviceWorker' in navigator) {
 
   // ---------- Pricing plans (stored at config/pricing) ----------
   async function loadPlans() {
-    try {
-      const snap = await db.collection('config').doc('pricing').get();
-      plans = (snap.exists && snap.data().plans) || [
-        { label: '1 Month', days: 30, price: 75 },
-        { label: '3 Months', days: 91, price: 180 },
-        { label: '6 Months', days: 182, price: 300 },
-        { label: '1 Year', days: 365, price: 500 },
-      ];
-    } catch (e) {
-      console.error('loadPlans error:', e);
-      document.getElementById('plans-status').style.color = '#f87171';
-      document.getElementById('plans-status').textContent = '❌ Could not load plans: ' + e.message;
-      plans = [];
-    }
+    const snap = await db.collection('config').doc('pricing').get();
+    plans = (snap.exists && snap.data().plans) || [
+      { label: '1 Month', days: 30, price: 75 },
+      { label: '3 Months', days: 91, price: 180 },
+      { label: '6 Months', days: 182, price: 300 },
+      { label: '1 Year', days: 365, price: 500 },
+    ];
     renderPlansEditor();
     renderPlanSelect();
   }
@@ -208,13 +191,12 @@ if ('serviceWorker' in navigator) {
       const row = document.createElement('div');
       row.className = 'plan-row';
       row.innerHTML = `
-        <input value="${p.label}" placeholder="Label" onchange="plans[${i}].label=this.value; renderPlanSelect();">
-        <input type="number" value="${p.days}" placeholder="Days" style="max-width:80px" onchange="plans[${i}].days=parseInt(this.value)||0; renderPlanSelect();">
-        <input type="number" value="${p.price}" placeholder="₹" style="max-width:80px" onchange="plans[${i}].price=parseInt(this.value)||0; renderPlanSelect();">
+        <input value="${p.label}" placeholder="Label" onchange="plans[${i}].label=this.value">
+        <input type="number" value="${p.days}" placeholder="Days" style="max-width:80px" onchange="plans[${i}].days=parseInt(this.value)">
+        <input type="number" value="${p.price}" placeholder="₹" style="max-width:80px" onchange="plans[${i}].price=parseInt(this.value)">
         <button class="danger small" onclick="removePlanRow(${i})">✕</button>`;
       wrap.appendChild(row);
     });
-    renderPlanSelect();
   }
   function addPlanRow() {
     plans.push({ label: 'New Plan', days: 30, price: 0 });
@@ -225,38 +207,14 @@ if ('serviceWorker' in navigator) {
     renderPlansEditor();
   }
   async function savePlans() {
-    const statusEl = document.getElementById('plans-status');
-    statusEl.style.color = '#94a3b8';
-    statusEl.textContent = 'Saving…';
-    try {
-      await db.collection('config').doc('pricing').set({ plans });
-      statusEl.style.color = '#22c55e';
-      statusEl.textContent = '✅ Saved ' + new Date().toLocaleTimeString();
-      renderPlanSelect();
-    } catch (e) {
-      statusEl.style.color = '#f87171';
-      statusEl.textContent = '❌ Save failed: ' + e.message;
-      console.error('savePlans error:', e);
-    }
-  }
-  let selectedPlanIdx = 0;
-  function selectPlan(i) {
-    selectedPlanIdx = i;
+    await db.collection('config').doc('pricing').set({ plans });
+    document.getElementById('plans-status').textContent = '✅ Saved ' + new Date().toLocaleTimeString();
     renderPlanSelect();
   }
   function renderPlanSelect() {
-    const wrap = document.getElementById('gen-plan-chips');
-    if (!wrap) return;
-    if (!plans || !plans.length) {
-      wrap.innerHTML = '<div class="plan-chip empty">No plans yet — add one above</div>';
-      return;
-    }
-    if (selectedPlanIdx > plans.length - 1) selectedPlanIdx = 0;
-    wrap.innerHTML = plans.map((p, i) =>
-      `<div class="plan-chip${i === selectedPlanIdx ? ' selected' : ''}" onclick="selectPlan(${i})">${p.label || 'Unnamed'} — ₹${p.price || 0} (${p.days || 0}d)</div>`
-    ).join('');
+    const sel = document.getElementById('gen-plan');
+    sel.innerHTML = plans.map((p, i) => `<option value="${i}">${p.label} — ₹${p.price} (${p.days}d)</option>`).join('');
   }
-
 
   // ---------- Code generation ----------
   function randomCode() {
@@ -270,32 +228,23 @@ if ('serviceWorker' in navigator) {
 
   let lastGenCode = '';
   async function doGenerate() {
-    if (!plans || !plans.length) {
-      alert('Add at least one plan above first.');
-      return;
-    }
+    const planIdx = parseInt(document.getElementById('gen-plan').value);
     const customDays = parseInt(document.getElementById('gen-custom-days').value);
-    const plan = plans[selectedPlanIdx] || { label: 'Custom', price: 0 };
+    const plan = plans[planIdx] || { label: 'Custom', price: 0 };
     const days = !isNaN(customDays) && customDays > 0 ? customDays : plan.days;
     const note = document.getElementById('gen-note').value.trim();
     const code = randomCode();
     const expiresAt = Date.now() + days * 86400000;
 
-    try {
-      await db.collection('licenseCodes').doc(code).set({
-        expiresAt,
-        revoked: false,
-        deviceId: null,
-        planLabel: plan.label,
-        price: plan.price,
-        buyerNote: note,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      alert('❌ Could not generate code: ' + e.message);
-      console.error('doGenerate error:', e);
-      return;
-    }
+    await db.collection('licenseCodes').doc(code).set({
+      expiresAt,
+      revoked: false,
+      deviceId: null,
+      planLabel: plan.label,
+      price: plan.price,
+      buyerNote: note,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
 
     lastGenCode = code;
     document.getElementById('gen-code').textContent = code;
