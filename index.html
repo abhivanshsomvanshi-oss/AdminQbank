@@ -159,7 +159,7 @@ if ('serviceWorker' in navigator) {
   // Some mobile networks/VPNs block Firestore's default streaming channel,
   // which makes reads/writes hang forever instead of failing. Long-polling is
   // slower per-request but far more reliable on such networks.
-  db.settings({ experimentalAutoDetectLongPolling: true });
+  db.settings({ experimentalForceLongPolling: true, useFetchStreams: false });
 
   // Wrap a promise so it fails with a clear message instead of hanging forever.
   function withTimeout(promise, ms = 12000, msg = 'Network timeout — check your internet connection and try again.') {

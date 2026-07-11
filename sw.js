@@ -1,4 +1,4 @@
-const CACHE_NAME = 'qbank-hub-admin-cache-v5';
+const CACHE_NAME = 'qbank-hub-admin-cache-v6';
 const CORE_ASSETS = [
   './index.html',
   './manifest.json',
