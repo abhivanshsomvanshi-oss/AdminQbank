@@ -1,4 +1,4 @@
-const CACHE_NAME = 'qbank-hub-admin-cache-v4';
+const CACHE_NAME = 'qbank-hub-cache-v5';
 const CORE_ASSETS = [
   './index.html',
   './manifest.json',
@@ -22,6 +22,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first for navigation & same-origin requests, falling back to cache when offline.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
