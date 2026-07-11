@@ -2,26 +2,27 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
 <meta name="theme-color" content="#0a0b10">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="manifest-admin.json">
-<title>QBank Hub — Admin Panel (PRIVATE)</title>
+<link rel="manifest" href="manifest.json">
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw-admin.js')
+    navigator.serviceWorker.register('./sw.js')
       .then(reg => console.log('Admin SW registered:', reg.scope))
       .catch(err => console.log('Admin SW error:', err));
   });
 }
 </script>
+<title>QBank Hub — Admin Panel (PRIVATE)</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   * { box-sizing: border-box; }
+  html { color-scheme: dark; }
   body {
     margin: 0; font-family: -apple-system, 'Inter', sans-serif;
     background: #0a0b10; color: #f1f5f9; min-height: 100vh; padding: 20px;
@@ -41,7 +42,22 @@ if ('serviceWorker' in navigator) {
   input, select {
     width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #2a2f45;
     background: #12141f; color: #f1f5f9; font-size: 14px;
+    -webkit-appearance: none; appearance: none;
   }
+  select {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'><path d='M1 1l6 6 6-6' stroke='%2394a3b8' stroke-width='2' fill='none' fill-rule='evenodd'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+  .plan-chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  .plan-chip {
+    padding: 9px 14px; border-radius: 20px; border: 1px solid #2a2f45;
+    background: #12141f; color: #cbd5e1; font-size: 13px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  .plan-chip.selected { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
+  .plan-chip.empty { color: #64748b; cursor: default; }
   button {
     padding: 11px 16px; border: none; border-radius: 10px; background: #6366f1;
     color: #fff; font-weight: 600; font-size: 14px; cursor: pointer;
@@ -98,16 +114,10 @@ if ('serviceWorker' in navigator) {
 
     <div class="card">
       <h2>🎟️ Generate a Code</h2>
-      <div class="row">
-        <div>
-          <label>Plan</label>
-          <select id="gen-plan"></select>
-        </div>
-        <div>
-          <label>Custom days (optional)</label>
-          <input type="number" id="gen-custom-days" placeholder="overrides plan">
-        </div>
-      </div>
+      <label>Plan</label>
+      <div id="gen-plan-chips" class="plan-chip-row"></div>
+      <label>Custom days (optional)</label>
+      <input type="number" id="gen-custom-days" placeholder="overrides plan">
       <label>Buyer name / note</label>
       <input type="text" id="gen-note" placeholder="e.g. Rahul - Anatomy batch">
       <div style="margin-top:12px"><button onclick="doGenerate()">Generate Code</button></div>
@@ -132,7 +142,7 @@ if ('serviceWorker' in navigator) {
 </div>
 
 <script>
-  // ====== PASTE THE SAME FIREBASE CONFIG + ADMIN EMAIL AS IN index.html ======
+  // ====== FIREBASE CONFIG (same project as index.html) ======
   const firebaseConfig = {
     apiKey: "AIzaSyAsYCks6MMeWOQwRAr7c4vKLuCSUGyDdnU",
     authDomain: "qbanks-hub.firebaseapp.com",
@@ -146,22 +156,9 @@ if ('serviceWorker' in navigator) {
   firebase.initializeApp(firebaseConfig);
   const auth = firebase.auth();
   const db = firebase.firestore();
-  // Some mobile networks/carriers (common in India) silently block Firestore's
-  // default streaming connection, causing requests to hang forever instead of
-  // erroring. Long-polling works around that.
-  db.settings({ experimentalForceLongPolling: true, merge: true });
 
   let allCodes = [];
   let plans = [];
-
-  // Wrap any Firestore call so it never hangs forever — if it doesn't
-  // finish within `ms`, reject with a clear timeout error instead.
-  function withTimeout(promise, ms = 15000, label = 'Request') {
-    return Promise.race([
-      promise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms/1000}s — check your internet connection and try again.`)), ms))
-    ]);
-  }
 
   function doLogin() {
     const email = document.getElementById('login-email').value.trim();
@@ -177,7 +174,6 @@ if ('serviceWorker' in navigator) {
       document.getElementById('login-card').style.display = 'none';
       document.getElementById('app-content').style.display = 'block';
       document.getElementById('who').textContent = 'Signed in as ' + user.email;
-      runConnectivityCheck();
       loadPlans();
       loadCodes();
     } else if (user) {
@@ -186,37 +182,24 @@ if ('serviceWorker' in navigator) {
     }
   });
 
-  async function runConnectivityCheck() {
-    const who = document.getElementById('who');
-    who.insertAdjacentHTML('afterend', '<div id="conn-check" style="font-size:12.5px;color:#94a3b8;margin-top:6px;">🔄 Checking connection to Firestore…</div>');
-    const banner = document.getElementById('conn-check');
-    try {
-      await withTimeout(db.collection('licenseCodes').doc('__connectivity_test__').set({ ping: Date.now() }), 12000, 'Connectivity check');
-      banner.style.color = '#22c55e';
-      banner.textContent = '✅ Connected to Firestore — writes are working.';
-      setTimeout(() => banner.remove(), 4000);
-    } catch (e) {
-      banner.style.color = '#f87171';
-      banner.textContent = '❌ Firestore write failed: ' + e.message + ' — see checklist below.';
-    }
-  }
-
   // ---------- Pricing plans (stored at config/pricing) ----------
   async function loadPlans() {
     try {
-      const snap = await withTimeout(db.collection('config').doc('pricing').get(), 15000, 'Loading plans');
+      const snap = await db.collection('config').doc('pricing').get();
       plans = (snap.exists && snap.data().plans) || [
         { label: '1 Month', days: 30, price: 75 },
         { label: '3 Months', days: 91, price: 180 },
         { label: '6 Months', days: 182, price: 300 },
         { label: '1 Year', days: 365, price: 500 },
       ];
-      renderPlansEditor();
-      renderPlanSelect();
     } catch (e) {
+      console.error('loadPlans error:', e);
+      document.getElementById('plans-status').style.color = '#f87171';
       document.getElementById('plans-status').textContent = '❌ Could not load plans: ' + e.message;
-      console.error('loadPlans failed:', e);
+      plans = [];
     }
+    renderPlansEditor();
+    renderPlanSelect();
   }
   function renderPlansEditor() {
     const wrap = document.getElementById('plans-editor');
@@ -225,12 +208,13 @@ if ('serviceWorker' in navigator) {
       const row = document.createElement('div');
       row.className = 'plan-row';
       row.innerHTML = `
-        <input value="${p.label}" placeholder="Label" onchange="plans[${i}].label=this.value">
-        <input type="number" value="${p.days}" placeholder="Days" style="max-width:80px" onchange="plans[${i}].days=parseInt(this.value)">
-        <input type="number" value="${p.price}" placeholder="₹" style="max-width:80px" onchange="plans[${i}].price=parseInt(this.value)">
+        <input value="${p.label}" placeholder="Label" onchange="plans[${i}].label=this.value; renderPlanSelect();">
+        <input type="number" value="${p.days}" placeholder="Days" style="max-width:80px" onchange="plans[${i}].days=parseInt(this.value)||0; renderPlanSelect();">
+        <input type="number" value="${p.price}" placeholder="₹" style="max-width:80px" onchange="plans[${i}].price=parseInt(this.value)||0; renderPlanSelect();">
         <button class="danger small" onclick="removePlanRow(${i})">✕</button>`;
       wrap.appendChild(row);
     });
+    renderPlanSelect();
   }
   function addPlanRow() {
     plans.push({ label: 'New Plan', days: 30, price: 0 });
@@ -242,21 +226,37 @@ if ('serviceWorker' in navigator) {
   }
   async function savePlans() {
     const statusEl = document.getElementById('plans-status');
+    statusEl.style.color = '#94a3b8';
     statusEl.textContent = 'Saving…';
     try {
-      await withTimeout(db.collection('config').doc('pricing').set({ plans }), 15000, 'Saving plans');
+      await db.collection('config').doc('pricing').set({ plans });
+      statusEl.style.color = '#22c55e';
       statusEl.textContent = '✅ Saved ' + new Date().toLocaleTimeString();
       renderPlanSelect();
     } catch (e) {
+      statusEl.style.color = '#f87171';
       statusEl.textContent = '❌ Save failed: ' + e.message;
-      console.error('savePlans failed:', e);
-      alert('Could not save plans:\n\n' + e.message + '\n\nMost likely cause: Firestore security rules aren\'t published yet, or ADMIN_EMAIL in this file doesn\'t exactly match your signed-in email.');
+      console.error('savePlans error:', e);
     }
   }
-  function renderPlanSelect() {
-    const sel = document.getElementById('gen-plan');
-    sel.innerHTML = plans.map((p, i) => `<option value="${i}" style="background:#12141f;color:#f1f5f9">${p.label} — ₹${p.price} (${p.days}d)</option>`).join('');
+  let selectedPlanIdx = 0;
+  function selectPlan(i) {
+    selectedPlanIdx = i;
+    renderPlanSelect();
   }
+  function renderPlanSelect() {
+    const wrap = document.getElementById('gen-plan-chips');
+    if (!wrap) return;
+    if (!plans || !plans.length) {
+      wrap.innerHTML = '<div class="plan-chip empty">No plans yet — add one above</div>';
+      return;
+    }
+    if (selectedPlanIdx > plans.length - 1) selectedPlanIdx = 0;
+    wrap.innerHTML = plans.map((p, i) =>
+      `<div class="plan-chip${i === selectedPlanIdx ? ' selected' : ''}" onclick="selectPlan(${i})">${p.label || 'Unnamed'} — ₹${p.price || 0} (${p.days || 0}d)</div>`
+    ).join('');
+  }
+
 
   // ---------- Code generation ----------
   function randomCode() {
@@ -270,17 +270,19 @@ if ('serviceWorker' in navigator) {
 
   let lastGenCode = '';
   async function doGenerate() {
-    if (!plans.length) { alert('No pricing plans loaded yet. Wait a moment and try again, or check the Pricing Plans section above for an error.'); return; }
-    const planIdx = parseInt(document.getElementById('gen-plan').value);
+    if (!plans || !plans.length) {
+      alert('Add at least one plan above first.');
+      return;
+    }
     const customDays = parseInt(document.getElementById('gen-custom-days').value);
-    const plan = plans[planIdx] || { label: 'Custom', price: 0 };
+    const plan = plans[selectedPlanIdx] || { label: 'Custom', price: 0 };
     const days = !isNaN(customDays) && customDays > 0 ? customDays : plan.days;
     const note = document.getElementById('gen-note').value.trim();
     const code = randomCode();
     const expiresAt = Date.now() + days * 86400000;
 
     try {
-      await withTimeout(db.collection('licenseCodes').doc(code).set({
+      await db.collection('licenseCodes').doc(code).set({
         expiresAt,
         revoked: false,
         deviceId: null,
@@ -288,10 +290,10 @@ if ('serviceWorker' in navigator) {
         price: plan.price,
         buyerNote: note,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      }), 15000, 'Generating code');
+      });
     } catch (e) {
-      console.error('doGenerate failed:', e);
-      alert('Could not generate code:\n\n' + e.message + '\n\nMost likely cause: Firestore security rules aren\'t published yet, or ADMIN_EMAIL in this file doesn\'t exactly match your signed-in email (' + (auth.currentUser ? auth.currentUser.email : 'not signed in') + ').');
+      alert('❌ Could not generate code: ' + e.message);
+      console.error('doGenerate error:', e);
       return;
     }
 
@@ -310,15 +312,9 @@ if ('serviceWorker' in navigator) {
 
   // ---------- Codes table ----------
   async function loadCodes() {
-    try {
-      const snap = await withTimeout(db.collection('licenseCodes').orderBy('createdAt', 'desc').get(), 15000, 'Loading codes');
-      allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderCodesTable();
-    } catch (e) {
-      console.error('loadCodes failed:', e);
-      document.getElementById('codes-tbody').innerHTML =
-        `<tr><td colspan="6" style="color:#f87171">Could not load codes: ${e.message}</td></tr>`;
-    }
+    const snap = await db.collection('licenseCodes').orderBy('createdAt', 'desc').get();
+    allCodes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderCodesTable();
   }
   function renderCodesTable() {
     const q = document.getElementById('search-box').value.toLowerCase();
@@ -346,22 +342,12 @@ if ('serviceWorker' in navigator) {
   }
   async function revoke(code) {
     if (!confirm(`Revoke code ${code}? The buyer will be locked out immediately.`)) return;
-    try {
-      await withTimeout(db.collection('licenseCodes').doc(code).update({ revoked: true }), 15000, 'Revoking code');
-      loadCodes();
-    } catch (e) {
-      alert('Could not revoke: ' + e.message);
-      console.error('revoke failed:', e);
-    }
+    await db.collection('licenseCodes').doc(code).update({ revoked: true });
+    loadCodes();
   }
   async function unrevoke(code) {
-    try {
-      await withTimeout(db.collection('licenseCodes').doc(code).update({ revoked: false }), 15000, 'Restoring code');
-      loadCodes();
-    } catch (e) {
-      alert('Could not restore: ' + e.message);
-      console.error('unrevoke failed:', e);
-    }
+    await db.collection('licenseCodes').doc(code).update({ revoked: false });
+    loadCodes();
   }
 </script>
 </body>
